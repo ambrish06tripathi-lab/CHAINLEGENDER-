@@ -146,10 +146,18 @@ app.post('/api/scan', upload.single('file'), async (req, res, next) => {
       text = req.file.buffer.toString('utf8');
     }
     const numbers = [...text.matchAll(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g)].map(m => Number(m[0].replace(/,/g, ''))).filter(n => Number.isFinite(n));
-    res.json({ fileName: req.file.originalname, mimeType: req.file.mimetype, extractedText: text.slice(0, 15000), candidateNumbers: numbers.slice(0, 30), needsUserConfirmation: true, warning: 'OCR/text extraction can be wrong. Verify the consumption value and unit before calculating emissions.' });
-  } catch (err) { next(err); }
-});
+    
+const billAnalysis = extractUtilityBillData(text);
 
+res.json({
+  fileName: req.file.originalname,
+  mimeType: req.file.mimetype,
+  extractedText: text.slice(0, 15000),
+  candidateNumbers: numbers.slice(0, 30),
+  billAnalysis,
+  needsUserConfirmation: true,
+  warning: billAnalysis.warning
+});
 app.post('/api/advisor', async (req, res) => {
   const { audits = [], question = '' } = req.body || {};
   if (!Array.isArray(audits) || audits.length > 500) return res.status(400).json({ error: 'audits must be an array of up to 500 entries.' });
