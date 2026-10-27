@@ -145,6 +145,45 @@ app.post('/api/scan', upload.single('file'), async (req, res, next) => {
     } else {
       text = req.file.buffer.toString('utf8');
     }
+    
+    // Extract useful information from the bill text
+    const amountMatch = text.match(
+      /(?:total amount|amount due|net payable|bill amount|total payable|grand total)[^\d₹]*₹?\s*([\d,]+(?:\.\d{1,2})?)/i
+    );
+
+    const unitsMatch = text.match(
+      /(?:units consumed|total units|consumption|kwh)[^\d]*([\d,]+(?:\.\d+)?)/i
+    );
+
+    const dateMatch = text.match(
+      /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/
+    );
+
+    const extractedData = {
+      extractedText: text.trim(),
+      amount: amountMatch
+        ? Number(amountMatch[1].replace(/,/g, ''))
+        : null,
+      unitsConsumed: unitsMatch
+        ? Number(unitsMatch[1].replace(/,/g, ''))
+        : null,
+      billDate: dateMatch ? dateMatch[1] : null
+    };
+
+    return res.json({
+      success: true,
+      message: 'Bill scanned successfully.',
+      data: extractedData
+    });
+
+  } catch (error) {
+    console.error('Bill scan error:', error);
+    return res.status(500).json({
+      error: 'Failed to scan bill. Please try another clear file.'
+    });
+  }
+});
+
     const numbers = [...text.matchAll(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g)].map(m => Number(m[0].replace(/,/g, ''))).filter(n => Number.isFinite(n));
     
 const billAnalysis = extractUtilityBillData(text);
