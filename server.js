@@ -39,6 +39,87 @@ const factors = {
 };
 const finitePositive = v => Number.isFinite(Number(v)) && Number(v) > 0;
 
+const BILL_EMISSION_FACTORS = {
+  electricity: {
+    unit: 'kWh',
+    factor: 0.716,
+    note: 'Illustrative electricity factor; verify for location and reporting year.'
+  },
+  diesel: {
+    unit: 'litres',
+    factor: 2.68,
+    note: 'Illustrative direct combustion factor.'
+  },
+  lpg: {
+    unit: 'kg',
+    factor: 2.98,
+    note: 'Approximate direct combustion factor.'
+  },
+  png: {
+    unit: 'standard m3',
+    factor: 1.9,
+    note: 'Approximate gas factor; verify methodology.'
+  }
+};
+
+function extractUtilityBillData(text) {
+  const input = String(text || '').replace(/\u00a0/g, ' ');
+
+  const patterns = [
+    {
+      source: 'electricity',
+      regex: /(?:units consumed|energy consumed|consumption|units|kwh)\s*[:=-]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:kwh|units?)\b/i
+    },
+    {
+      source: 'diesel',
+      regex: /diesel(?: consumption| used| quantity)?\s*[:=-]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:litres?|ltrs?|ltr)\b/i
+    },
+    {
+      source: 'lpg',
+      regex: /(?:lpg|liquefied petroleum gas)(?:\s+(?:consumption|quantity|used))?\s*[:=-]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:kg|kilograms?)\b/i
+    },
+    {
+      source: 'png',
+      regex: /(?:png|piped natural gas|natural gas)(?:\s+(?:consumption|quantity|used))?\s*[:=-]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:standard\s*m(?:3|³)|scm|m(?:3|³))\b/i
+    }
+  ];
+
+  const candidates = [];
+
+  for (const item of patterns) {
+    const match = input.match(item.regex);
+    if (!match) continue;
+
+    const quantity = Number(match[1].replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+    const info = BILL_EMISSION_FACTORS[item.source];
+
+    candidates.push({
+      source: item.source,
+      quantity,
+      unit: info.unit,
+      emissionFactorKgCO2ePerUnit: info.factor,
+      estimatedKgCO2e: Number((quantity * info.factor).toFixed(3)),
+      factorNote: info.note,
+      evidence: match[0],
+      needsUserConfirmation: true
+    });
+  }
+
+  return {
+    candidates,
+    estimatedTotalKgCO2e: Number(
+      candidates.reduce((sum, item) => sum + item.estimatedKgCO2e, 0).toFixed(3)
+    ),
+    needsUserConfirmation: true,
+    warning: candidates.length
+      ? 'Estimates only. Confirm quantity, unit, billing period and emission factor before saving an audit.'
+      : 'No clear supported consumption value found. Check the extracted text and enter the quantity manually.'
+  };
+}
+
+
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'ChainLedger AI API', features: { cloudDatabase: supabaseReady, aiAdvisor: Boolean(process.env.AI_API_KEY), payment: razorpayReady, documentOCR: true }, note: 'OCR is enabled for supported uploads. Emission factors are illustrative until configured for your reporting methodology.' }));
 
 app.post('/api/carbon/calculate', (req, res) => {
