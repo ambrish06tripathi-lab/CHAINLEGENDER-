@@ -131,72 +131,105 @@ app.post('/api/carbon/calculate', (req, res) => {
   res.json({ source, quantity: Number(quantity), unit: factors[source].unit, factor, kgCO2e: Number(quantity) * factor, factorNote: factors[source].note, status: 'estimate_not_verified' });
 });
 
-app.post('/api/scan', upload.single('file'), async (req, res, next) => {
+
+app.post('/api/scan', upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'Upload a file using form field "file".' });
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'Upload a file using form field "file".'
+      });
+    }
+
     let text = '';
+
+    // Extract text from a PDF that contains selectable text.
     if (req.file.mimetype === 'application/pdf') {
       const parsed = await pdf(req.file.buffer);
       text = parsed.text || '';
-      if (!text.trim()) return res.status(422).json({ error: 'This PDF appears to be scanned/image-only. Upload a clear image or use OCR-capable PDF processing.', extractedText: '' });
+
+      if (!text.trim()) {
+        return res.status(422).json({
+          error:
+            'This PDF has no extractable text. Upload a clear JPG/PNG image of the bill instead.',
+          extractedText: '',
+          billAnalysis: {
+            candidates: [],
+            needsUserConfirmation: true,
+            warning: 'No selectable PDF text found.'
+          }
+        });
+      }
     } else if (req.file.mimetype.startsWith('image/')) {
-      const result = await Tesseract.recognize(req.file.buffer, 'eng');
+      // OCR for uploaded bill images.
+      const result = await Tesseract.recognize(
+        req.file.buffer,
+        'eng'
+      );
       text = result.data.text || '';
     } else {
+      // TXT or CSV
       text = req.file.buffer.toString('utf8');
     }
-    
-    // Extract useful information from the bill text
+
+    text = text.trim();
+
+    if (!text) {
+      return res.status(422).json({
+        error: 'No readable text found. Try a clearer image.',
+        extractedText: ''
+      });
+    }
+
+    // Extract amount payable.
     const amountMatch = text.match(
-      /(?:total amount|amount due|net payable|bill amount|total payable|grand total)[^\d₹]*₹?\s*([\d,]+(?:\.\d{1,2})?)/i
+      /(?:total amount|amount due|net payable|bill amount|total payable|grand total)[^\d₹]{0,30}₹?\s*([\d,]+(?:\.\d{1,2})?)/i
     );
 
-    const unitsMatch = text.match(
-      /(?:units consumed|total units|consumption|kwh)[^\d]*([\d,]+(?:\.\d+)?)/i
-    );
-
+    // Extract bill date.
     const dateMatch = text.match(
       /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/
     );
 
-    const extractedData = {
-      extractedText: text.trim(),
+    // Use the existing utility-bill analysis function.
+    const billAnalysis = extractUtilityBillData(text);
+
+    // Find numeric values for manual review in the frontend.
+    const numbers = [
+      ...text.matchAll(
+        /(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g
+      )
+    ]
+      .map(match =>
+        Number(match[0].replace(/,/g, ''))
+      )
+      .filter(Number.isFinite);
+
+    // Response shape expected by index.html.
+    return res.json({
+      success: true,
+      message: 'Bill text extracted successfully.',
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      extractedText: text.slice(0, 15000),
       amount: amountMatch
         ? Number(amountMatch[1].replace(/,/g, ''))
         : null,
-      unitsConsumed: unitsMatch
-        ? Number(unitsMatch[1].replace(/,/g, ''))
-        : null,
-      billDate: dateMatch ? dateMatch[1] : null
-    };
-
-    return res.json({
-      success: true,
-      message: 'Bill scanned successfully.',
-      data: extractedData
+      billDate: dateMatch ? dateMatch[1] : null,
+      candidateNumbers: numbers.slice(0, 30),
+      billAnalysis,
+      needsUserConfirmation: true,
+      warning: billAnalysis.warning
     });
 
   } catch (error) {
     console.error('Bill scan error:', error);
+
     return res.status(500).json({
       error: 'Failed to scan bill. Please try another clear file.'
     });
   }
 });
 
-    const numbers = [...text.matchAll(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g)].map(m => Number(m[0].replace(/,/g, ''))).filter(n => Number.isFinite(n));
-    
-const billAnalysis = extractUtilityBillData(text);
-
-res.json({
-  fileName: req.file.originalname,
-  mimeType: req.file.mimetype,
-  extractedText: text.slice(0, 15000),
-  candidateNumbers: numbers.slice(0, 30),
-  billAnalysis,
-  needsUserConfirmation: true,
-  warning: billAnalysis.warning
-});
 app.post('/api/advisor', async (req, res) => {
   const { audits = [], question = '' } = req.body || {};
   if (!Array.isArray(audits) || audits.length > 500) return res.status(400).json({ error: 'audits must be an array of up to 500 entries.' });
