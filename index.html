@@ -109,8 +109,6 @@ $('fileInput').addEventListener('change', async e => {
   try {
     const formData = new FormData();
     formData.append('file', f);
-
-    
 const response = await fetch(
   'https://chainlegender.onrender.com/api/scan',
   {
@@ -118,6 +116,22 @@ const response = await fetch(
     body: formData
   }
 );
+
+const contentType = response.headers.get('content-type') || '';
+
+if (!contentType.includes('application/json')) {
+  const text = await response.text();
+  throw new Error(
+    `API ने JSON के बजाय HTML/text लौटाया (HTTP ${response.status}). ` +
+    text.slice(0, 180)
+  );
+}
+
+const data = await response.json();
+
+if (!response.ok) {
+  throw new Error(data.error || `HTTP ${response.status}`);
+}
     
 
     const data = await response.json();
