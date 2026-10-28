@@ -132,22 +132,14 @@ const data = await response.json();
 if (!response.ok) {
   throw new Error(data.error || `HTTP ${response.status}`);
 }
-    
 
-    const data = await response.json();
+$('fileText').value = data.extractedText || '';
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Document scan failed.');
-    }
+const analysis = data.billAnalysis;
+const candidates = analysis?.candidates || [];
 
-    $('fileText').value = data.extractedText || '';
-
-    const analysis = data.billAnalysis;
-    const candidates = analysis?.candidates || [];
-
-    if (candidates.length) {
-      const item = candidates[0];
-
+if (candidates.length) {
+  const item = candidates[0];
       $('consumption').value = item.quantity;
       $('factor').value = item.emissionFactorKgCO2ePerUnit;
 
